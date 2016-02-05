@@ -1,0 +1,21 @@
+INCL asm-library/Spin.s
+
+
+
+START:
+LOD NUM
+STR 2
+MOV N_[1] INTO Spin_Count[C]
+MOVADDR SpinCall_Return1 INTO Spin_Return[1]
+LOD N_[0]
+JMP Spin_Entry
+SpinCall_Return1:
+INC NUM INTO NUM
+LOD N_[0]
+JMP START
+
+NUM: .data 1 0
+
+
+
+

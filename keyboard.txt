@@ -1,0 +1,81 @@
+INF 19
+
+LOD N_[7]
+STR 0
+
+;Get 2 bytes of NULL
+LOD N_[8]
+STR 1
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD N_[0]
+STR 1
+
+START:
+LOD N_[8]
+STR 1
+
+;while(!ready);
+LOD 1
+NND N_[2]
+NND N_[F]
+LOGNOT ACC
+JMP START
+
+LOD 2
+STR LATEST_KEY[0]
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD 2
+STR LATEST_KEY[1]
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD 2
+STR LATEST_KEY[2]
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD 2
+STR LATEST_KEY[3]
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD 2
+STR LATEST_KEY[4]
+LOD N_[0]
+STR 1
+LOD N_[8]
+STR 1
+LOD 2
+STR LATEST_KEY[5]
+
+LOD N_[0]
+STR 1
+JMP START
+
+
+
+
+
+
+LATEST_KEY: .data 6   
+
+
+
+
