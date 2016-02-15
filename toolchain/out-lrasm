@@ -1,0 +1,18 @@
+INF 1024
+
+;Start of code from ../Assembly Files/discreteTest1.asm
+
+LOD 15
+STR 1000
+LOD 3
+STR 1001
+LOD 8
+LOD 1001
+JMP 19
+
+;End of code from ../Assembly Files/discreteTest1.asm
+;Start of data sections
+;Start of data from ../Assembly Files/discreteTest1.asm
+
+
+;End of data from ../Assembly Files/discreteTest1.asm
