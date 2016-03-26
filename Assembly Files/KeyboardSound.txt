@@ -1,4 +1,4 @@
-INF 19
+INF 0d50000
 INCL ps2driver.s
 MOVADDR return INTO PS2_DRIVER.Exit[1]
 Start:
