@@ -1,0 +1,13 @@
+INF 19
+INCL ps2driver.s
+MOVADDR return INTO PS2_DRIVER.Exit[1]
+Start:
+LOD N_[0]
+JMP PS2_DRIVER.Enter
+return:
+LOD PS2_DRIVER.GotKey
+JMP Start
+LOD PS2_DRIVER.Keystroke[1]
+BEEP ACC
+LOD N_[0]
+JMP Start
