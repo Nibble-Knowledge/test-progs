@@ -1,13 +1,30 @@
 INF 0d50000
 INCL ps2driver.s
+
+#Setup
 MOVADDR return INTO PS2_DRIVER.Exit[1]
+
 Start:
+
+#Slow down the loop, to avoid confusing things quite so much
+INC8 SpinCount
+JMPNE8 SpinCount SpinZero TO Start
+
+#Check for keystroke
 LOD N_[0]
 JMP PS2_DRIVER.Enter
 return:
+
+#If no keystoke found, back to start
 LOD PS2_DRIVER.GotKey
 JMP Start
+
+#If keystroke, make noise
 LOD PS2_DRIVER.Keystroke[1]
 BEEP ACC
 LOD N_[0]
 JMP Start
+
+
+SpinCount: 	.data 2 0x00
+SpinZero:	.data 2 0x00
