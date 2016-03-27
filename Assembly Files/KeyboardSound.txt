@@ -1,11 +1,26 @@
 INF 0d50000
 INCL ps2driver.s
+INCL serialdriver.s
+INCL vgadriver.s
 
 #Setup
-MOVADDR return INTO PS2_DRIVER.Exit[1]
+#We only do this once, so we can do it ahead of time
+MOVADDR returnKeys INTO PS2_DRIVER.Exit[1]
 
+#---------------Test if there's serial data-------------
 Start:
 
+MOVADDR returnSerial1 INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0]
+JMP DRIVER_SERIAL.RxEnter
+returnSerial1:
+LOD DRIVER_SERIAL.RxGotData
+JMP NotSerial
+LOD N_[0]
+JMP YesSerial
+
+#-----------------The keyboard part-----------------------
+NotSerial:
 #Slow down the loop, to avoid confusing things quite so much
 INC8 SpinCount
 JMPNE8 SpinCount SpinZero TO Start
@@ -13,7 +28,7 @@ JMPNE8 SpinCount SpinZero TO Start
 #Check for keystroke
 LOD N_[0]
 JMP PS2_DRIVER.Enter
-return:
+returnKeys:
 
 #If no keystoke found, back to start
 LOD PS2_DRIVER.GotKey
@@ -25,6 +40,142 @@ BEEP ACC
 LOD N_[0]
 JMP Start
 
+#--------------------Serial stuff (gets complicated)--------
+YesSerial:
+
+#check that it looks well-formatted.
+#If not, eat the character and go back to start
+JMPNE8 DRIVER_SERIAL.RxByte LeftCarat TO Start
+
+#clear the screen
+MOVADDR ClrReturn INTO VGA_DRIVER.Exit[1]
+LOD N_[0]
+JMP VGA_DRIVER.EntryClearScreen
+
+
+#Get username, making sure it's not too long (or garbage)
+UsernameLoop:
+MOVADDR UsernameRxRet INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0] 
+JMP DRIVER_SERIAL.RxEnter
+
+UsernameRxRet:
+#If we didn't get a full message, give up
+LOD DRIVER_SERIAL.RxGotData
+JMP Start
+
+#If we got a right carat, we're done the username
+JMPEQ8 DRIVER_SERIAL.RxByte RightCarat TO DoneUsername
+
+#If the name is too long, give up and goto start
+INC8 UsernameGuard
+JMPEQ UsernameGuard SpinZero TO Start
+
+#Send it to the serial to transmit back
+MOV8 DRIVER_SERIAL.RxByte INTO DRIVER_SERIAL.TxByte
+MOVADDR UsernameTxRet INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0]
+JMP DRIVER_SERIAL.TxEnter
+
+#Now, send it to the screen
+UsernameTxRet:
+MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
+MOVADDR UsernamePrintRet INTO VGA_DRIVER.Exit[1]
+LOD N_[0]
+JMP VGA_DRIVER.Entry
+
+#back to top of loop
+UsernamePrintRet:
+JMP UsernameLoop
+
+#--------Send Response message----------------
+
+DoneUsername:
+LOD N_[0]
+#Clear values to zero, as needed
+STR UsernameGuard[0]
+STR UsernameGuard[1]
+STR ResponseIndex[0]
+STR ResponseIndex[1]
+
+#Setup pointers
+MOVADDR ResponseMsg INTO MsgPtr1[1]
+MOVADDR ResponseRet INTO DRIVER_SERIAL.Exit[1]
+
+ReponseLoop:
+
+#Self-modifying pointer stuff
+
+INC16 MsgPtr1[1] INTO MsgPtr2[1]
+
+MsgPtr1:
+LOD 0x0000
+STR DRIVER_SERIAL.TxByte[0]
+
+MsgPtr2:
+LOD 0x0000
+STR DRIVER_SERIAL.TxByte[1]
+
+INC16 MsgPtr2[1] INTO MsgPtr1[1]
+
+#Self-modifying stuff ends here
+LOD N_[0]
+JMP DRIVER_SERIAL.TxEnter
+
+ResponseRet:
+
+#Count response characters. If done, fall through
+INC8 ResponseIndex
+JMPL8 ResponseIndex ResponseLength TO ResponseLoop
+
+#Setup new pointers
+MOVADDR MsgReturnVGA INTO VGA_DRIVER.Exit[1]
+MOVADDR MsgReturnSerial INTO DRIVER_SERIAL.Exit[1]
+
+#Print tweet to screen.
+MessageLoop:
+LOD N_[0]
+JMP DRIVER_SERIAL.RxEnter
+MsgReturnSerial:
+
+#If no data, we're... done?
+LOD DRIVER_SERIAL.RxGotData
+JMP DoneMsg
+
+#If \r or \n, we're actually done
+JMPEQ8 DRIVER_SERIAL.RxByte NewlineChar TO DoneMsg
+JMPEQ8 DRIVER_SERIAL.RxByte ReturnChar TO DoneMsg
+
+#Print to screen
+MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
+LOD N_[0]
+JMP VGA_DRIVER.Entry
+
+MsgReturnVga:
+JMP MessageLoop
+
+#If done, newline and back to top
+DoneMsg:
+
+MOVADDR DoneReturn INTO VGA_DRIVER.Exit[1]
+LOD N_[0]
+JMP VGA_DRIVER.EntryNewLine
+
+DoneReturn:
+JMP Start
+
 
 SpinCount: 	.data 2 0x00
 SpinZero:	.data 2 0x00
+
+UsernameGuard:	.data 2 0x00
+
+ResponseMsg:	.ascii " Hello!ZZ"
+#VERY IMPORTANT: This must be the number of bytes in the message
+ResponseLength:	.data 2 0x09
+ResponseIndex:	.data 2 0x00
+
+LeftCarat:		.ascii "<"
+RightCarat:		.ascii ">"
+NewlineChar:	.ascii "\n"
+ReturnChar:		.ascii "\r"
