@@ -6,21 +6,10 @@ INCL vgadriver.s
 #Setup
 #We only do this once, so we can do it ahead of time
 MOVADDR returnKeys INTO PS2_DRIVER.Exit[1]
+MOV N_[0] INTO StateWaiting
 
-#---------------Test if there's serial data-------------
 Start:
 
-MOVADDR returnSerial1 INTO DRIVER_SERIAL.Exit[1]
-LOD N_[0]
-JMP DRIVER_SERIAL.RxEnter
-returnSerial1:
-LOD DRIVER_SERIAL.RxGotData
-JMP NotSerial
-LOD N_[0]
-JMP YesSerial
-
-#-----------------The keyboard part-----------------------
-NotSerial:
 #Slow down the loop, to avoid confusing things quite so much
 INC8 SpinCount
 JMPNE8 SpinCount SpinZero TO Start
@@ -30,152 +19,319 @@ LOD N_[0]
 JMP PS2_DRIVER.Enter
 returnKeys:
 
-#If no keystoke found, back to start
+#If no keystoke found, skip the BEEP macro
 LOD PS2_DRIVER.GotKey
-JMP Start
+JMP NoKeystroke
 
 #If keystroke, make noise
 LOD PS2_DRIVER.Keystroke[1]
 BEEP ACC
-LOD N_[0]
-JMP Start
+
+NoKeystroke:
+#Fall through the comment block below, regardless of keyboard status
 
 #--------------------Serial stuff (gets complicated)--------
-YesSerial:
+
+#This code is stateful, and being modeled as a finite state machine.
+#When not inside of the serial code, it can rest in one of four
+#different states:
+
+#-Waiting for tweet
+#-Finishing username
+#-Reading tweet
+#-Responding to tweet
+
+#These states are managed by having a one-nibble variable for each.
+#If this code is in a state, its variable will hold the value 0.
+#If not, its variable will hold a non-zero value.
+
+LOD StateWaiting
+JMP WaitState
+
+LOD StateUsername
+JMP UsernameState
+
+LOD StateReading
+JMP ReadingState
+
+LOD StateResponse
+JMP ResponseState
+
+#This is never allowed to freeze
+#So if it looks like it did, FIX THINGS, by force if necessary
+MOV N_[0] INTO StateWaiting
+JMP WaitState
+
+
+
+#-----------------state waiting for tweet-----------------------
+WaitState:
+
+#Get a byte
+MOVADDR WaitStartRet INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0]
+JMP DRIVER_SERIAL.RxEnter
+WaitStartRet:
+
+#If we didn't get a byte, go back
+LOD DRIVER_SERIAL.RxGotData
+JMP Start
 
 #check that it looks well-formatted.
 #If not, eat the character and go back to start
-JMPNE8 DRIVER_SERIAL.RxByte LeftCarat TO Start
+JMPNE8 DRIVER_SERIAL.RxByte ACircleChar TO Start
 
 #clear the screen
 MOVADDR ClrReturn INTO VGA_DRIVER.Exit[1]
 LOD N_[0]
 JMP VGA_DRIVER.EntryClearScreen
 
+ClrReturn:
 
-#Get username, making sure it's not too long (or garbage)
+#Setup pointers, and write in the first character
+MOVADDR Username[0] INTO WritePtr1[1]
+MOV N_[0] INTO UsernameLength
+
+#Print things to screen, and store to memory
+#Loop 7 and a half times (sorry...)
 UsernameLoop:
-MOVADDR UsernameRxRet INTO DRIVER_SERIAL.Exit[1]
+
+
+#Self-modifying loop for saving the name
+INC16 WritePtr1[1] INTO WritePtr2[1]
+
+LOD DRIVER_SERIAL.RxByte[0]
+WritePtr1:
+STR 0x0000
+
+LOD DRIVER_SERIAL.RxByte[1]
+WritePtr2:
+STR 0x0000
+
+INC16 WritePtr2[1] INTO WritePtr1[1]
+INC UsernameLength
+
+#Done self-modifying. Print the char to the screen
+MOVADDR WaitVGAReturn INTO VGA_DRIVER.Exit[1]
+MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
+LOD N_[0]
+JMP VGA_DRIVER.Entry
+
+WaitVGAReturn:
+
+#Test to see if we've gone around 8 times
+UCLC ACC
+LOD UsernameLength
+ADD N_[8]
+#If usernameLength was 8, acc is now 0
+JMP DoneWait
+
+#This returns to top of loop.
+MOVADDR UsernameLoop INTO DRIVER_SERIAL.Exit[1]
 LOD N_[0] 
 JMP DRIVER_SERIAL.RxEnter
 
-UsernameRxRet:
-#If we didn't get a full message, give up
+#We have the first 8 bits. Change state and return
+DoneWait:
+MOV N_[0] INTO StateUsername
+MOV N_[F] INTO StateWaiting
+LOD N_[0]
+JMP Start
+
+#------------------State finishing receiving username------------------
+UsernameState:
+
+#Get a byte
+MOVADDR UsrStartRet INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0]
+JMP DRIVER_SERIAL.RxEnter
+UsrStartRet:
+
+#If we didn't get a byte, go back
 LOD DRIVER_SERIAL.RxGotData
 JMP Start
 
-#If we got a right carat, we're done the username
-JMPEQ8 DRIVER_SERIAL.RxByte RightCarat TO DoneUsername
 
-#If the name is too long, give up and goto start
-INC8 UsernameGuard
-JMPEQ UsernameGuard SpinZero TO Start
+#Setup pointers, and write in the ninth character
+MOVADDR Username[16] INTO Write2Ptr1[1]
 
-#Send it to the serial to transmit back
-MOV8 DRIVER_SERIAL.RxByte INTO DRIVER_SERIAL.TxByte
-MOVADDR UsernameTxRet INTO DRIVER_SERIAL.Exit[1]
-LOD N_[0]
-JMP DRIVER_SERIAL.TxEnter
+#Print things to screen, and store to memory
+#Loop 7 and a half times (sorry...)
+Username2Loop:
 
-#Now, send it to the screen
-UsernameTxRet:
+#Self-modifying loop for saving the name
+INC16 Write2Ptr1[1] INTO Write2Ptr2[1]
+
+LOD DRIVER_SERIAL.RxByte[0]
+Write2Ptr1:
+STR 0x0000
+
+LOD DRIVER_SERIAL.RxByte[1]
+Write2Ptr2:
+STR 0x0000
+
+INC16 Write2Ptr2[1] INTO Write2Ptr1[1]
+INC UsernameLength
+
+#Done self-modifying. Print the char to the screen
+MOVADDR UsrVGAReturn INTO VGA_DRIVER.Exit[1]
 MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
-MOVADDR UsernamePrintRet INTO VGA_DRIVER.Exit[1]
 LOD N_[0]
 JMP VGA_DRIVER.Entry
 
-#back to top of loop
-UsernamePrintRet:
-JMP UsernameLoop
+UsrVGAReturn:
 
-#--------Send Response message----------------
+#Test to see if we've gone around 8 more times
+LOD UsernameLength
+#If usernameLength is 16, it overflows to 0. If that happens, we're done.
+JMP DoneUsr
 
-DoneUsername:
+#This returns to top of loop.
+MOVADDR Username2Loop INTO DRIVER_SERIAL.Exit[1]
+LOD N_[0] 
+JMP DRIVER_SERIAL.RxEnter
+
+#We have the full username. Change state, start new line, and return
+DoneUsr:
+
+MOVADDR UsrNewline INTO VGA_DRIVER.Exit[1]
 LOD N_[0]
-#Clear values to zero, as needed
-STR UsernameGuard[0]
-STR UsernameGuard[1]
-STR ResponseIndex[0]
-STR ResponseIndex[1]
+JMP VGA_DRIVER.EntryNewline
 
-#Setup pointers
-MOVADDR ResponseMsg INTO MsgPtr1[1]
-MOVADDR ResponseRet INTO DRIVER_SERIAL.Exit[1]
+UsrNewline:
+MOV N_[F] INTO StateUsername
+MOV N_[0] INTO StateReading
+LOD N_[0]
+JMP Start
 
-ReponseLoop:
 
-#Self-modifying pointer stuff
+#------------------------State reading tweet------------------
 
-INC16 MsgPtr1[1] INTO MsgPtr2[1]
+ReadingState:
 
-MsgPtr1:
+#Setup return addresses
+MOVADDR ReadingLoop INTO VGA_DRIVER.Exit[1]
+MOVADDR ReadSerialReturn INTO DRIVER_SERIAL.Exit[1]
+
+#Get a byte
+ReadingLoop:
+LOD N_[0]
+JMP DRIVER_SERIAL.RxEnter
+ReadSerialReturn:
+
+#If no data, stay in this state, but stop blocking
+LOD DRIVER_SERIAL.RxGotData
+JMP Start
+
+#If data, check for special tweet terminator characters.
+#If seen, change state and stop blocking
+JMPEQ8 NewlineChar DRIVER_SERIAL.RxByte TO ReadingDone
+JMPEQ8 ReturnChar DRIVER_SERIAL.RxByte TO ReadingDone
+
+#Send byte to screen, and return to top of loop
+MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
+LOD N_[0]
+JMP VGA_DRIVER.Entry
+
+
+ReadingDone:
+MOV N_[0] INTO StateResponse
+MOV N_[F] INTO StateReading
+LOD N_[0]
+JMP Start
+
+#---------------------------State Responding to tweet---------------
+ResponseState:
+
+#Force-clear the serial buffer?
+#Not sure what to do here yet. Yakov REALLY needs to communicate more.
+
+#setup self-modifying loop, the first time
+MOVADDR Username INTO ReadPtr1[1]
+MOVADDR ResponseLoopRet INTO DRIVER_SERIAL.Exit[1]
+MOV N_[0] INTO RespCount
+
+#Jump here after first eight times around - basically go around 8 more times
+#without changing anything
+Resp1:
+
+MOV N_[0] INTO UsernameLength
+
+ResponseLoop:
+
+INC16 ReadPtr1[1] INTO ReadPtr2[1]
+
+ReadPtr1:
 LOD 0x0000
 STR DRIVER_SERIAL.TxByte[0]
 
-MsgPtr2:
+ReadPtr2:
 LOD 0x0000
 STR DRIVER_SERIAL.TxByte[1]
 
-INC16 MsgPtr2[1] INTO MsgPtr1[1]
-
-#Self-modifying stuff ends here
+INC16 ReadPtr2[1] INTO ReadPtr1[1]
 LOD N_[0]
 JMP DRIVER_SERIAL.TxEnter
 
-ResponseRet:
+ResponseLoopRet:
+UCLC ACC
+LOD UsernameLength
+ADD N_[8]
+JMP ResponseDoneLoop
 
-#Count response characters. If done, fall through
-INC8 ResponseIndex
-JMPL8 ResponseIndex ResponseLength TO ResponseLoop
-
-#Setup new pointers
-MOVADDR MsgReturnVGA INTO VGA_DRIVER.Exit[1]
-MOVADDR MsgReturnSerial INTO DRIVER_SERIAL.Exit[1]
-
-#Print tweet to screen.
-MessageLoop:
 LOD N_[0]
-JMP DRIVER_SERIAL.RxEnter
-MsgReturnSerial:
+JMP ResponseLoop
 
-#If no data, we're... done?
-LOD DRIVER_SERIAL.RxGotData
-JMP DoneMsg
+ResponseDoneLoop:
 
-#If \r or \n, we're actually done
-JMPEQ8 DRIVER_SERIAL.RxByte NewlineChar TO DoneMsg
-JMPEQ8 DRIVER_SERIAL.RxByte ReturnChar TO DoneMsg
+#First or second times out, change things and back to top of loop
+INC RespCount
+JMPEQ RespCount N_[1] TO Resp1
+JMPEQ RespCount N_[2] TO SecondResponseDone
 
-#Print to screen
-MOV8 DRIVER_SERIAL.RxByte INTO VGA_DRIVER.Char
+#Otherwise, clean up and finish
+MOV N_[F] INTO StateResponse
+MOV N_[0] INTO StateWaiting
 LOD N_[0]
-JMP VGA_DRIVER.Entry
-
-MsgReturnVga:
-JMP MessageLoop
-
-#If done, newline and back to top
-DoneMsg:
-
-MOVADDR DoneReturn INTO VGA_DRIVER.Exit[1]
-LOD N_[0]
-JMP VGA_DRIVER.EntryNewLine
-
-DoneReturn:
 JMP Start
 
+#After our second time around the response loop,
+#set up sending the actual message
+SecondResponseDone:
+MOVADDR ResponseMsg INTO ReadPtr1[1]
+MOV N_[0] INTO UsernameLength
+LOD N_[0]
+JMP ResponseLoop
+
+
+
+
+
+
+#------------------------------Data----------------------------------
 
 SpinCount: 	.data 2 0x00
 SpinZero:	.data 2 0x00
 
-UsernameGuard:	.data 2 0x00
+#Number of chars in username (really just a loop guard)
+UsernameLength:	.data 1 0x0
 
-ResponseMsg:	.ascii " Hello!ZZ"
-#VERY IMPORTANT: This must be the number of bytes in the message
-ResponseLength:	.data 2 0x09
-ResponseIndex:	.data 2 0x00
+#Counter for response state
+RespCount:		.data 1 0x0
 
-LeftCarat:		.ascii "<"
-RightCarat:		.ascii ">"
+#String storage block, with spaces to avoid data corruption
+Username:		.data 32
+SafetyPadding:	.data 32 0x0
+ResponseMsg:	.ascii " Hello! "
+MorePadding:	.ascii "        "
+
+#Char literals for reference (usually equality tested against)
 NewlineChar:	.ascii "\n"
 ReturnChar:		.ascii "\r"
+ACircleChar:	.ascii "@"
+
+#"boolean" state variables (0 if in that state)
+StateWaiting:	.data 1 0x0
+StateUsername:	.data 1 0xF
+StateReading:	.data 1 0xF
+StateResponse:	.data 1 0xF
