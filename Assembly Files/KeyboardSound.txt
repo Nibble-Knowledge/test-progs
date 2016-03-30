@@ -1,8 +1,12 @@
 INF 0d50000
 INCL ps2driver.s
+INCL vgadriver.s
+INCL to-ascii.s
 
 #Setup
-MOVADDR return INTO PS2_DRIVER.Exit[1]
+MOVADDR return1 INTO PS2_DRIVER.Exit[1]
+MOVADDR return2 INTO TO_ASCII.Exit[1]
+MOVADDR return3 INTO VGA_DRIVER.Exit[1]
 
 Start:
 
@@ -13,7 +17,7 @@ JMPNE8 SpinCount SpinZero TO Start
 #Check for keystroke
 LOD N_[0]
 JMP PS2_DRIVER.Enter
-return:
+return1:
 
 #If no keystoke found, back to start
 LOD PS2_DRIVER.GotKey
@@ -22,8 +26,29 @@ JMP Start
 #If keystroke, make noise
 LOD PS2_DRIVER.Keystroke[1]
 BEEP ACC
+
+#try to get ascii value
+MOV8 Keystroke INTO TO_ASCII.Keycode
+LOD N_[0]
+JMP TO_ASCII.Enter
+return2:
+
+#If we have an ascii code, go to printing it to screen
+LOD TO_ASCII.Recognised
+JMP printchar
+
 LOD N_[0]
 JMP Start
+
+
+#If we found a code
+printchar:
+MOV8 TO_ASCII.Ascii INTO VGA_DRIVER.Char
+JMP VGA_DRIVER.Entry
+
+return3:
+JMP Start
+
 
 
 SpinCount: 	.data 2 0x00
